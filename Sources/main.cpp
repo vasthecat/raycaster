@@ -200,6 +200,23 @@ sample_uv(const Image &img, const Vector2 uv)
     return color_data[img.width * ty + tx];
 }
 
+std::vector<size_t>
+get_render_order(const Player &player, const std::vector<Object> &objects)
+{
+    std::vector<std::pair<float, size_t>> distances;
+    for (size_t i = 0; i < objects.size(); i++)
+    {
+        float dist = Vector2LengthSqr(objects[i].pos - player.pos);
+        distances.emplace_back(dist, i);
+    }
+    std::sort(distances.begin(), distances.end(), std::greater<>());
+
+    std::vector<size_t> order;
+    for (auto &p : distances)
+        order.push_back(p.second);
+    return std::move(order);
+}
+
 void
 draw_raycast_view(const Player &player, const std::vector<Object> &objects,
                   const RaycastConfig &config)
@@ -286,9 +303,11 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
         rect_x += config.rect_w;
     }
 
-    for (auto &object : objects)
+    std::vector<size_t> render_order = get_render_order(player, objects);
+    for (size_t i : render_order)
     {
         // std::cout << "=== START === " << std::endl;
+        const Object &object = objects[i];
         Vector2 player_to_object = object.pos - player.pos;
         Vector2 anti_normal = Vector2Normalize(Vector2Rotate(player_to_object, 90 * DEG2RAD));
 
@@ -369,7 +388,7 @@ int main()
     objects.push_back(barrel);
 
     Object barrel2;
-    barrel2.pos = { 3 * cell_size, 5 * cell_size };
+    barrel2.pos = { 3 * cell_size, 4 * cell_size };
     barrel2.image = LoadImage("./Assets/textures/barrel.png");
     objects.push_back(barrel2);
 
