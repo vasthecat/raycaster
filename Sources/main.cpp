@@ -6,16 +6,17 @@
 #include <cmath>
 #include <chrono>
 
-// #define DRAW_VIEW_RAYS
-// #define DRAW_COLLISIONS
+#define DRAW_VIEW_RAYS
+#define DRAW_COLLISIONS
 
-const int screen_width = 640;
-const int screen_height = 640;
+const int screen_width = 1024;
+const int screen_height = 768;
+const float mouse_sensetivity = 3;
 
 const int board_w = 8;
 const int board_h = 9;
 
-const int cell_size = screen_width / board_w;
+const int cell_size = 80;
 
 int board[board_w][board_h] = {
     { 1, 1, 1, 1, 1, 1, 1, 1, 1 },
@@ -65,6 +66,14 @@ struct RayHit {
 struct Collision {
     Vector2 pos;
     CellPos cell;
+};
+
+struct RaycastConfig
+{
+    float fov;
+    int rays_count;
+    float delta_angle;
+    float rect_w;
 };
 
 inline Vector2
@@ -137,7 +146,10 @@ find_collisions(const Vector2 &pos, float radius)
 }
 
 void
-draw_top_down_view(const Player &player)
+draw_top_down_view(const Player &player,
+                   const std::vector<RayHit> &hits,
+                   const std::vector<Object> &objects,
+                   const RaycastConfig &config)
 {
     for (int row = 0; row < board_h; ++row) {
         for (int col = 0; col < board_w; ++col) {
@@ -162,6 +174,20 @@ draw_top_down_view(const Player &player)
 
     Vector2 player_cell = get_cell(player.pos);
     DrawRectangleV(player_cell * cell_size, {cell_size, cell_size}, PURPLE);
+#ifdef DRAW_VIEW_RAYS
+    for (auto &hit : hits)
+        DrawLineEx(player.pos, hit.pos, 2, BLUE);
+#endif
+    for (auto &object : objects)
+    {
+        Vector2 player_to_object = object.pos - player.pos;
+        Vector2 anti_normal = Vector2Normalize(Vector2Rotate(player_to_object, 90 * DEG2RAD));
+
+        Vector2 a = object.pos - anti_normal * cell_size / 2;
+        Vector2 b = object.pos + anti_normal * cell_size / 2;
+        DrawLineEx(a, b, 5, RED);
+    }
+
     DrawCircleV(player.pos, 10, RED);
     DrawLineEx(player.pos, player.pos + Vector2Rotate({ 1,0 }, player.rotation) * 25, 3, RED);
 }
@@ -215,14 +241,6 @@ cast_ray(Vector2 pos, Vector2 dir)
         return hit_v;
 }
 
-struct RaycastConfig
-{
-    float fov;
-    int rays_count;
-    float delta_angle;
-    float rect_w;
-};
-
 Vector2
 slerp(Vector2 a, Vector2 b, float t)
 {
@@ -259,27 +277,16 @@ get_render_order(const Player &player, const std::vector<Object> &objects)
 }
 
 void
-draw_raycast_view(const Player &player, const std::vector<Object> &objects,
+draw_raycast_view(const Player &player,
+                  const std::vector<RayHit> &hits,
+                  const std::vector<Object> &objects,
                   const RaycastConfig &config)
 {
-    std::vector<RayHit> hits;
-    for (float angle = -config.fov / 2; angle < config.fov / 2; angle += config.delta_angle) {
-        Vector2 d = {
-            cos(player.rotation + angle),
-            sin(player.rotation + angle),
-        };
-        RayHit hit = cast_ray(player.pos, d);
-#ifdef DRAW_VIEW_RAYS
-        DrawLineEx(player.pos, hit.pos, 2, BLUE);
-#endif
-        hits.push_back(hit);
-    }
-
     int horizon = screen_height / 2;
     float cam_height = 0.5 * screen_height;
 
     float rect_x = 0;
-    for (RayHit& hit : hits)
+    for (auto &hit : hits)
     {
         Vector2 hit_delta = hit.pos - player.pos;
         float dist =
@@ -302,12 +309,12 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
             Vector2 uv = floor_pos - cell;
 
             DrawRectangle(
-                screen_width + x, screen_height - y,
+                x, screen_height - y,
                 config.rect_w + 1, 1,
                 sample_uv(floor_img, uv)
             );
             DrawRectangle(
-                screen_width + x, y,
+                x, y,
                 config.rect_w + 1, 1,
                 sample_uv(ceiling_img, uv)
             );
@@ -338,7 +345,7 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
             Color pixel = color_data[i * cell_image.width + col];
 
             DrawRectangle(
-                screen_width + rect_x - 1, rect_y + pix_h * i,
+                rect_x - 1, rect_y + pix_h * i,
                 config.rect_w + 2, pix_h + 2, pixel
             );
         }
@@ -349,14 +356,12 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
     std::vector<size_t> render_order = get_render_order(player, objects);
     for (size_t i : render_order)
     {
-        // std::cout << "=== START === " << std::endl;
         const Object &object = objects[i];
         Vector2 player_to_object = object.pos - player.pos;
         Vector2 anti_normal = Vector2Normalize(Vector2Rotate(player_to_object, 90 * DEG2RAD));
 
         Vector2 a = object.pos - anti_normal * cell_size / 2;
         Vector2 b = object.pos + anti_normal * cell_size / 2;
-        DrawLineEx(a, b, 5, RED);
 
         Vector2 dir = Vector2Rotate({ 1, 0 }, player.rotation);
 
@@ -375,7 +380,6 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
             float dist = Vector2Length(point_delta);
             if (dist < Vector2Length(hit.pos - player.pos))
             {
-                // DrawLineEx(player.pos, point, 2, GREEN);
                 float rect_h = (cell_size * screen_height) / dist;
                 float rect_y = (screen_height - rect_h) / 2;
 
@@ -397,19 +401,12 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
                     Color pixel = color_data[i * object.image.width + col];
 
                     DrawRectangle(
-                        screen_width + rect_x, rect_y + pix_h * i,
+                        rect_x, rect_y + pix_h * i,
                         rect_w + 1, pix_h + 1, pixel
                     );
                 }
             }
-            // else
-            // {
-            //     DrawLineEx(player.pos, hit.pos, 2, MAGENTA);
-            // }
         }
-        // DrawLineEx(player.pos, a, 5, BLACK);
-        // DrawLineEx(player.pos, b, 5, PURPLE);
-        // std::cout << "=== END === " << std::endl;
     }
 }
 
@@ -443,11 +440,11 @@ fix_collisions(Player &player, const Vector2 &move_dir, float dt)
 
 int main()
 {
-    InitWindow(screen_width * 2, screen_height, "Raycaster");
-    SetTargetFPS(60);
+    InitWindow(screen_width, screen_height, "Raycaster");
+    // SetTargetFPS(60);
 
     Player player;
-    player.pos = { screen_width / 2., screen_height / 2. };
+    player.pos = { 5.0f * cell_size, 5.0f * cell_size };
     player.speed = 100;
     player.rotation = 0;
 
@@ -464,10 +461,12 @@ int main()
     objects.push_back(barrel2);
 
     RaycastConfig config;
-    config.fov = 60 * DEG2RAD;
-    config.rays_count = screen_width / 2;
+    config.fov = 75 * DEG2RAD;
+    config.rays_count = screen_width / 4;
     config.delta_angle = config.fov / config.rays_count;
     config.rect_w = (screen_width / config.fov) * config.delta_angle;
+
+    bool draw_map = false;
 
     float t = 0;
     while (!WindowShouldClose())
@@ -480,7 +479,7 @@ int main()
         Vector2 move_dir = { 0, 0 };
         DisableCursor();
         float delta = GetMouseDelta().x;
-        player.rotation += delta * dt * 0.1;
+        player.rotation += delta * 1e-3f * mouse_sensetivity;
         Vector2 dir = Vector2Rotate({ 1, 0 }, player.rotation);
         Vector2 forward = dir;
         Vector2 right = Vector2Rotate(forward, PI / 2);
@@ -492,14 +491,30 @@ int main()
             move_dir = -right;
         if (IsKeyDown(KEY_D))
             move_dir = right;
+        
+        if (IsKeyPressed(KEY_T))
+            draw_map = !draw_map;
+
+        std::vector<RayHit> hits;
+        for (float angle = -config.fov / 2; angle < config.fov / 2; angle += config.delta_angle) {
+            Vector2 d = {
+                cos(player.rotation + angle),
+                sin(player.rotation + angle),
+            };
+            RayHit hit = cast_ray(player.pos, d);
+            hits.push_back(hit);
+        }
 
         BeginDrawing();
         {
             ClearBackground(BLACK);
-            draw_top_down_view(player);
-            draw_raycast_view(player, objects, config);
+            if (draw_map)
+                draw_top_down_view(player, hits, objects, config);
+            else
+                draw_raycast_view(player, hits, objects, config);
             fix_collisions(player, move_dir, dt);
         }
+        DrawFPS(10, 10);
         EndDrawing();
     }
     CloseWindow();
