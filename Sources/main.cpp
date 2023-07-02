@@ -1,5 +1,6 @@
 #include <raylib-ext.hpp>
 #include <algorithm>
+#include <raylib.h>
 #include <raymath.h>
 #include <vector>
 #include <iostream>
@@ -7,7 +8,8 @@
 #include <chrono>
 
 #define DRAW_VIEW_RAYS
-// #define DRAW_COLLISIONS
+#define DRAW_COLLISIONS
+// #define DRAW_RAYS_TO_OBJECTS
 
 const int screen_width = 1024;
 const int screen_height = 768;
@@ -74,7 +76,11 @@ struct RaycastConfig
     int rays_count;
     float delta_angle;
     float rect_w;
+    RenderTexture minimap;
+    bool draw_map;
 };
+
+RaycastConfig config;
 
 inline Vector2
 get_cell(const Vector2 &pos)
@@ -380,6 +386,12 @@ draw_raycast_view(const Player &player,
             float dist = Vector2Length(point_delta);
             if (dist < Vector2Length(hit.pos - player.pos))
             {
+#ifdef DRAW_RAYS_TO_OBJECTS
+                BeginTextureMode(config.minimap);
+                DrawLineV(player.pos, point, GREEN);
+                EndTextureMode();
+#endif
+
                 float rect_h = (cell_size * screen_height) / dist;
                 float rect_y = (screen_height - rect_h) / 2;
 
@@ -406,7 +418,21 @@ draw_raycast_view(const Player &player,
                     );
                 }
             }
+#ifdef DRAW_RAYS_TO_OBJECTS
+            else
+            {
+                BeginTextureMode(config.minimap);
+                DrawLineEx(player.pos, hit.pos, 2, MAGENTA);
+                EndTextureMode();
+            }
+#endif
         }
+#ifdef DRAW_RAYS_TO_OBJECTS
+        BeginTextureMode(config.minimap);
+        DrawLineEx(player.pos, a, 5, BLACK);
+        DrawLineEx(player.pos, b, 5, PURPLE);
+        EndTextureMode();
+#endif
     }
 }
 
@@ -426,13 +452,15 @@ fix_collisions(Player &player, const Vector2 &move_dir, float dt)
             Vector2 fix = Vector2Normalize(player.pos - collision.pos) * collision_radius + collision.pos;
             player.pos += fix - player.pos;
 #ifdef DRAW_COLLISIONS
-            DrawRectangle(
-                collision.cell.x * cell_size,
-                collision.cell.y * cell_size,
-                cell_size, cell_size, GREEN
-            );
-            DrawCircleV(collision.pos, 4, MAGENTA);
-            DrawCircleV(fix, 4, MAGENTA);
+            BeginTextureMode(config.minimap);
+                DrawRectangle(
+                    collision.cell.x * cell_size,
+                    collision.cell.y * cell_size,
+                    cell_size, cell_size, GREEN
+                );
+                DrawCircleV(collision.pos, 4, MAGENTA);
+                DrawCircleV(fix, 4, MAGENTA);
+            EndTextureMode();
 #endif
         }
     }
@@ -460,13 +488,12 @@ int main()
     barrel2.image = LoadImage("./Assets/textures/barrel.png");
     objects.push_back(barrel2);
 
-    RaycastConfig config;
     config.fov = 75 * DEG2RAD;
     config.rays_count = screen_width / 4;
     config.delta_angle = config.fov / config.rays_count;
     config.rect_w = (screen_width / config.fov) * config.delta_angle;
-
-    bool draw_map = false;
+    config.minimap = LoadRenderTexture(screen_width, screen_height);
+    config.draw_map = false;
 
     float t = 0;
     while (!WindowShouldClose())
@@ -493,7 +520,7 @@ int main()
             move_dir = right;
         
         if (IsKeyPressed(KEY_T))
-            draw_map = !draw_map;
+            config.draw_map = !config.draw_map;
 
         std::vector<RayHit> hits;
         for (float angle = -config.fov / 2; angle < config.fov / 2; angle += config.delta_angle) {
@@ -505,15 +532,18 @@ int main()
             hits.push_back(hit);
         }
 
+        BeginTextureMode(config.minimap);
+        draw_top_down_view(player, hits, objects, config);
+        EndTextureMode();
+
         BeginDrawing();
         {
             ClearBackground(BLACK);
-            if (draw_map)
-                draw_top_down_view(player, hits, objects, config);
-            else
-                draw_raycast_view(player, hits, objects, config);
+            draw_raycast_view(player, hits, objects, config);
             fix_collisions(player, move_dir, dt);
         }
+        if (config.draw_map)
+            DrawTexture(config.minimap.texture, 0, 0, WHITE);
         DrawFPS(10, 10);
         EndDrawing();
     }
