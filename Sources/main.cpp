@@ -6,6 +6,8 @@
 #include <iostream>
 #include <cmath>
 #include <chrono>
+#include <unordered_map>
+#include <unordered_set>
 
 #define DRAW_VIEW_RAYS
 #define DRAW_COLLISIONS
@@ -55,7 +57,33 @@ struct CellPos {
     int x, y;
     CellPos() : x(0), y(0) {};
     CellPos(int x, int y) : x(x), y(y) {};
+    CellPos(const CellPos &p) : x(p.x), y(p.y) {};
     CellPos(Vector2 v) : x(int(v.x)), y(int(v.y)) {};
+    bool operator==(const CellPos &p) const
+    {
+        return p.x == x && p.y == y;
+    }
+    bool operator!=(const CellPos &p) const
+    {
+        return p.x != x || p.y != y;
+    }
+
+};
+
+std::ostream &operator<<(std::ostream &stream, const CellPos &c)
+{
+    stream << c.x << ' ' << c.y;
+    return stream;
+}
+
+struct hash_fn
+{
+    std::size_t operator() (const CellPos &p) const
+    {
+        std::size_t h1 = std::hash<int>()(p.x);
+        std::size_t h2 = std::hash<int>()(p.y);
+        return h1 ^ h2;
+    }
 };
 
 struct RayHit {
@@ -466,6 +494,90 @@ fix_collisions(Player &player, const Vector2 &move_dir, float dt)
     }
 }
 
+std::vector<CellPos>
+find_path(Vector2 from, Vector2 to)
+{
+    CellPos cell0(from / cell_size);
+    CellPos cell_fin(to / cell_size);
+
+    std::unordered_set<CellPos, hash_fn> visited;
+    std::unordered_map<CellPos, CellPos, hash_fn> trace;
+    std::unordered_set<CellPos, hash_fn> front = { cell0 };
+
+    CellPos prev = cell0;
+    bool found = false;
+    while (!found)
+    {
+        CellPos cur;
+        int heuristic = INT_MAX;
+        for (auto &cell : front)
+        {
+            int h = std::abs(cell.x - cell_fin.x) + std::abs(cell.y - cell_fin.y);
+            if (h < heuristic)
+            {
+                heuristic = h;
+                cur = cell;
+            }
+        }
+
+        front.erase(cur);
+        visited.insert(cur);
+        prev = cur;
+
+        std::vector<CellPos> neighbours;
+        neighbours.emplace_back(cur.x - 1, cur.y);
+        neighbours.emplace_back(cur.x + 1, cur.y);
+        neighbours.emplace_back(cur.x, cur.y - 1);
+        neighbours.emplace_back(cur.x, cur.y + 1);
+
+        for (auto &neighbour : neighbours)
+        {
+            if (neighbour == cell_fin)
+            {
+                trace[neighbour] = cur;
+                found = true;
+                break;
+            }
+            else if (correct_cell(neighbour) &&
+                     board[neighbour.x][neighbour.y] == 0 &&
+                     visited.find(neighbour) == visited.end())
+            {
+                front.insert(neighbour);
+                trace[neighbour] = cur;
+            }
+        }
+    }
+
+    // TODO: check if there is no path
+    std::vector<CellPos> path;
+    CellPos tracer = cell_fin;
+    while (tracer != cell0)
+    {
+        path.push_back(tracer);
+        tracer = trace.at(tracer);
+    }
+    path.push_back(cell0);
+
+    BeginTextureMode(config.minimap);
+    for (int i = 0; i < int(path.size()) - 1; i++)
+    {
+        CellPos c0 = path[i];
+        CellPos c1 = path[i + 1];
+        Vector2 p0 = {
+            c0.x * 1.0f * cell_size + cell_size / 2.0f,
+            c0.y * 1.0f * cell_size + cell_size / 2.0f,
+        };
+        Vector2 p1 = {
+            c1.x * 1.0f * cell_size + cell_size / 2.0f,
+            c1.y * 1.0f * cell_size + cell_size / 2.0f,
+        };
+        DrawLineEx(p0, p1, 10, MAGENTA);
+    }
+    EndTextureMode();
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
 int main()
 {
     InitWindow(screen_width, screen_height, "Raycaster");
@@ -485,8 +597,13 @@ int main()
 
     Object barrel2;
     barrel2.pos = { 3 * cell_size, 4 * cell_size };
-    barrel2.image = LoadImage("./Assets/textures/barrel.png");
+    barrel2.image = LoadImage("./Assets/textures/enemy1.png");
     objects.push_back(barrel2);
+
+    Object barrel3;
+    barrel3.pos = { 2 * cell_size, 2 * cell_size };
+    barrel3.image = LoadImage("./Assets/textures/michael.png");
+    objects.push_back(barrel3);
 
     config.fov = 75 * DEG2RAD;
     config.rays_count = screen_width / 4;
@@ -495,13 +612,9 @@ int main()
     config.minimap = LoadRenderTexture(screen_width, screen_height);
     config.draw_map = false;
 
-    float t = 0;
     while (!WindowShouldClose())
     {
         float dt = GetFrameTime();
-        t += dt;
-
-        objects[1].pos.x = 3 * cell_size + 100 * sin(t);
 
         Vector2 move_dir = { 0, 0 };
         DisableCursor();
@@ -535,6 +648,32 @@ int main()
         BeginTextureMode(config.minimap);
         draw_top_down_view(player, hits, objects, config);
         EndTextureMode();
+
+        std::vector<CellPos> path = find_path(objects[1].pos, player.pos);
+        if (path.size() > 1)
+        {
+            CellPos c0 = path[1];
+            Vector2 p0 = {
+                c0.x * 1.0f * cell_size + cell_size / 2.0f,
+                c0.y * 1.0f * cell_size + cell_size / 2.0f,
+            };
+
+            Vector2 move = Vector2Normalize(p0 - objects[1].pos) * dt * 30;
+            objects[1].pos += move;
+        }
+
+        path = find_path(objects[2].pos, player.pos);
+        if (path.size() > 1)
+        {
+            CellPos c0 = path[1];
+            Vector2 p0 = {
+                c0.x * 1.0f * cell_size + cell_size / 2.0f,
+                c0.y * 1.0f * cell_size + cell_size / 2.0f,
+            };
+
+            Vector2 move = Vector2Normalize(p0 - objects[2].pos) * dt * 40;
+            objects[2].pos += move;
+        }
 
         BeginDrawing();
         {
