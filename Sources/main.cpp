@@ -1,8 +1,10 @@
 #include <raylib-ext.hpp>
 #include <algorithm>
+#include <raymath.h>
 #include <vector>
 #include <iostream>
 #include <cmath>
+#include <chrono>
 
 const int screen_width = 640;
 const int screen_height = 640;
@@ -90,9 +92,16 @@ Image images[] = {
 Image floor_img = LoadImage("./Assets/textures/FLOOR_1A.png");
 Image ceiling_img = LoadImage("./Assets/textures/LIGHT_1C.png");
 
+struct CellPos {
+    int x, y;
+    CellPos() : x(0), y(0) {};
+    CellPos(int x, int y) : x(x), y(y) {};
+    CellPos(Vector2 v) : x(int(v.x)), y(int(v.y)) {};
+};
+
 struct RayHit {
     Vector2 pos;
-    struct { int x, y; } cell_pos;
+    CellPos cell_pos;
     bool is_horizontal;
     float angle;
 };
@@ -101,6 +110,12 @@ inline bool
 correct_cell(int x, int y)
 {
     return (x >= 0 && x < board_w) && (y >= 0 && y < board_h);
+}
+
+inline bool
+correct_cell(CellPos pos)
+{
+    return correct_cell(pos.x, pos.y);
 }
 
 inline float
@@ -112,85 +127,51 @@ fix_angle(float angle)
 }
 
 RayHit
-cast_ray(Vector2 pos, float dir)
+cast_ray(Vector2 pos, Vector2 dir)
 {
-    dir = fix_angle(dir);
+    float angle = Vector2Angle({1, 0}, dir);
+    Vector2 cell = pos / cell_size;
 
-    int cell_x = pos.x / cell_size;
-    int cell_y = pos.y / cell_size;
+    RayHit hit_h;
+    hit_h.angle = angle;
+    hit_h.is_horizontal = true;
 
-    RayHit hit_data_v, hit_data_h;
+    float hor_mag = (std::round((dir.y < 0 ? -0.5 : 0.5) + cell.y) - cell.y) / dir.y * cell_size;
+    float hor_move = std::abs(cell_size / dir.y);
+    hit_h.pos = pos + dir * hor_mag;
 
-    // Vertical hit
     for (int k = 0; ; ++k) {
-        int shift;
-        int k_dir;
-        if (dir > -PI / 2 && dir < PI / 2) {
-            shift = 1;
-            k_dir = 1;
-        }
-        else {
-            shift = 0;
-            k_dir = -1;
-        }
-
-        float dx = (cell_x + shift + k * k_dir) * cell_size - pos.x;
-        float dy = dx * tan(dir);
-        Vector2 d = { dx, dy };
-        Vector2 hit = d + pos;
-
-        int cell_hit_x = int(hit.x / cell_size) + shift - 1;
-        int cell_hit_y = int(hit.y / cell_size);
-
-        hit_data_v.pos = hit;
-        hit_data_v.cell_pos = { cell_hit_x, cell_hit_y };
-        hit_data_v.is_horizontal = false;
-        hit_data_v.angle = dir;
-
-        if (!correct_cell(cell_hit_x, cell_hit_y))
-            break;
-        if (board[cell_hit_x][cell_hit_y] != 0)
-            break;
+        hit_h.cell_pos.x = int(hit_h.pos.x / cell_size);
+        hit_h.cell_pos.y = int((hit_h.pos.y + dir.y * 0.5f * cell_size) / cell_size);
+        bool correct = correct_cell(hit_h.cell_pos);
+        if (!correct) break;
+        bool is_wall = board[hit_h.cell_pos.x][hit_h.cell_pos.y] != 0;
+        if (correct && is_wall) break;
+        hit_h.pos += dir * hor_move;
     }
 
-    // Horizontal hit
+    RayHit hit_v;
+    hit_v.angle = angle;
+    hit_v.is_horizontal = false;
+
+    float vert_mag = (std::round((dir.x < 0 ? -0.5 : 0.5) + cell.x) - cell.x) / dir.x * cell_size;
+    float vert_move = std::abs(cell_size / dir.x);
+    hit_v.pos = pos + dir * vert_mag;
+
     for (int k = 0; ; ++k) {
-        int shift;
-        int k_dir;
-        if (dir > -PI && dir < 0) {
-            shift = 0;
-            k_dir = -1;
-        }
-        else {
-            shift = 1;
-            k_dir = 1;
-        }
-
-        float dy = (cell_y + shift + k * k_dir) * cell_size - pos.y;
-        float dx = dy / tan(dir);
-        Vector2 d = { dx, dy };
-        Vector2 hit = d + pos;
-
-        int cell_hit_x = int(hit.x / cell_size);
-        int cell_hit_y = int(hit.y / cell_size) + shift - 1;
-
-        hit_data_h.pos = hit;
-        hit_data_h.cell_pos = { cell_hit_x, cell_hit_y };
-        hit_data_h.is_horizontal = true;
-        hit_data_h.angle = dir;
-
-        if (!correct_cell(cell_hit_x, cell_hit_y))
-            break;
-        if (board[cell_hit_x][cell_hit_y] != 0)
-            break;
+        hit_v.cell_pos.x = int((hit_v.pos.x + dir.x * 0.5f * cell_size) / cell_size);
+        hit_v.cell_pos.y = int(hit_v.pos.y / cell_size);
+        bool correct = correct_cell(hit_v.cell_pos);
+        if (!correct) break;
+        bool is_wall = board[hit_v.cell_pos.x][hit_v.cell_pos.y] != 0;
+        if (correct && is_wall) break;
+        hit_v.pos += dir * vert_move;
     }
 
-    if (Vector2Length(hit_data_h.pos - pos) < Vector2Length(hit_data_v.pos - pos)) {
-        return hit_data_h;
-    }
-    else {
-        return hit_data_v;
-    }
+    if (Vector2LengthSqr(hit_h.pos - pos) < Vector2LengthSqr(hit_v.pos - pos))
+        return hit_h;
+    else
+        return hit_v;
 }
 
 struct RaycastConfig
@@ -225,7 +206,11 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
 {
     std::vector<RayHit> hits;
     for (float angle = -config.fov / 2; angle < config.fov / 2; angle += config.delta_angle) {
-        RayHit hit = cast_ray(player.pos, player.rotation + angle);
+        Vector2 d = {
+            cos(player.rotation + angle),
+            sin(player.rotation + angle),
+        };
+        RayHit hit = cast_ray(player.pos, d);
         DrawLineEx(player.pos, hit.pos, 2, BLUE);
         hits.push_back(hit);
     }
@@ -322,7 +307,7 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
         for (int ray_i = 0; ray_i < rays_count; ray_i++)
         {
             Vector2 point = player.pos + slerp(a - player.pos, b - player.pos, ray_i * 1.0f / rays_count);
-            RayHit hit = cast_ray(player.pos, player.rotation - Vector2Angle(point - player.pos, dir));
+            RayHit hit = cast_ray(player.pos, Vector2Normalize(point - player.pos));
 
             auto point_delta = point - player.pos;
             float dist = Vector2Length(point_delta);
@@ -390,7 +375,7 @@ int main()
 
     RaycastConfig config;
     config.fov = 60 * DEG2RAD;
-    config.rays_count = screen_width / 2.0f;
+    config.rays_count = screen_width / 2;
     config.delta_angle = config.fov / config.rays_count;
     config.rect_w = (screen_width / config.fov) * config.delta_angle;
 
