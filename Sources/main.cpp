@@ -49,8 +49,15 @@ struct Player {
 };
 
 struct Object {
+    size_t id;
     Vector2 pos;
     Image image;
+
+    Object()
+    {
+        static size_t counter = 0;
+        id = counter++;
+    }
 };
 
 struct CellPos {
@@ -578,10 +585,79 @@ find_path(Vector2 from, Vector2 to)
     return path;
 }
 
+void
+shoot(const Player &player, std::vector<Object> &objects)
+{
+    size_t to_destroy = -1;
+    for (auto &object : objects)
+    {
+        Vector2 player_to_object = object.pos - player.pos;
+        Vector2 anti_normal = Vector2Normalize(Vector2Rotate(player_to_object, 90 * DEG2RAD));
+
+        Vector2 a = object.pos - anti_normal * cell_size / 2;
+        Vector2 b = object.pos + anti_normal * cell_size / 2;
+
+        Vector2 dir = Vector2Rotate({ 1, 0 }, player.rotation);
+
+        float start_angle = fix_angle(Vector2Angle({1, 0}, a - player.pos));
+        float end_angle = fix_angle(Vector2Angle({1, 0}, b - player.pos));
+        float angle = fix_angle(player.rotation);
+
+        // TODO: this is not really working
+        if (start_angle < angle && angle < end_angle)
+        {
+            to_destroy = object.id;
+            break;
+        }
+    }
+    if (to_destroy != -1)
+    {
+        objects.erase(
+            std::remove_if(
+                objects.begin(),
+                objects.end(),
+                [to_destroy](Object &c) {
+                    return c.id == to_destroy;
+                }
+            ),
+            objects.end()
+        );
+    }
+}
+
+void
+draw_hands(Texture2D &hands)
+{
+    float scale = 3;
+    Vector2 position = {
+        (screen_width - hands.width * scale) / 2.0f,
+        screen_height - hands.height * scale,
+    };
+    DrawTextureEx(hands, position, 0, scale, WHITE);
+}
+
+void
+draw_crosshair()
+{
+    float size = 20;
+    Vector2 center = { screen_width / 2.0f, screen_height / 2.0f };
+    DrawLineEx(
+        center - Vector2 { size, 0 },
+        center + Vector2 { size, 0 },
+        3, Color { 255, 255, 255, 128 }
+    );
+    DrawLineEx(
+        center - Vector2 { 0, size },
+        center + Vector2 { 0, size },
+        3, Color { 255, 255, 255, 128 }
+    );
+}
+
 int main()
 {
     InitWindow(screen_width, screen_height, "Raycaster");
     // SetTargetFPS(60);
+    Texture2D hands = LoadTexture("./Assets/textures/hands.png");
 
     Player player;
     player.pos = { 5.0f * cell_size, 5.0f * cell_size };
@@ -635,6 +711,9 @@ int main()
         if (IsKeyPressed(KEY_T))
             config.draw_map = !config.draw_map;
 
+        if (IsKeyPressed(KEY_SPACE))
+            shoot(player, objects);
+
         std::vector<RayHit> hits;
         for (float angle = -config.fov / 2; angle < config.fov / 2; angle += config.delta_angle) {
             Vector2 d = {
@@ -649,37 +728,46 @@ int main()
         draw_top_down_view(player, hits, objects, config);
         EndTextureMode();
 
-        std::vector<CellPos> path = find_path(objects[1].pos, player.pos);
-        if (path.size() > 1)
+        if (objects.size() > 1)
         {
-            CellPos c0 = path[1];
-            Vector2 p0 = {
-                c0.x * 1.0f * cell_size + cell_size / 2.0f,
-                c0.y * 1.0f * cell_size + cell_size / 2.0f,
-            };
+            std::vector<CellPos> path = find_path(objects[1].pos, player.pos);
+            if (path.size() > 1)
+            {
+                CellPos c0 = path[1];
+                Vector2 p0 = {
+                    c0.x * 1.0f * cell_size + cell_size / 2.0f,
+                    c0.y * 1.0f * cell_size + cell_size / 2.0f,
+                };
 
-            Vector2 move = Vector2Normalize(p0 - objects[1].pos) * dt * 30;
-            objects[1].pos += move;
+                Vector2 move = Vector2Normalize(p0 - objects[1].pos) * dt * 30;
+                objects[1].pos += move;
+            }
         }
 
-        path = find_path(objects[2].pos, player.pos);
-        if (path.size() > 1)
+        if (objects.size() > 2)
         {
-            CellPos c0 = path[1];
-            Vector2 p0 = {
-                c0.x * 1.0f * cell_size + cell_size / 2.0f,
-                c0.y * 1.0f * cell_size + cell_size / 2.0f,
-            };
+            std::vector<CellPos> path = find_path(objects[2].pos, player.pos);
+            if (path.size() > 1)
+            {
+                CellPos c0 = path[1];
+                Vector2 p0 = {
+                    c0.x * 1.0f * cell_size + cell_size / 2.0f,
+                    c0.y * 1.0f * cell_size + cell_size / 2.0f,
+                };
 
-            Vector2 move = Vector2Normalize(p0 - objects[2].pos) * dt * 40;
-            objects[2].pos += move;
+                Vector2 move = Vector2Normalize(p0 - objects[2].pos) * dt * 40;
+                objects[2].pos += move;
+            }
         }
+
 
         BeginDrawing();
         {
             ClearBackground(BLACK);
             draw_raycast_view(player, hits, objects, config);
             fix_collisions(player, move_dir, dt);
+            draw_hands(hands);
+            draw_crosshair();
         }
         if (config.draw_map)
             DrawTexture(config.minimap.texture, 0, 0, WHITE);
