@@ -6,29 +6,36 @@
 #include <cmath>
 #include <chrono>
 
+// #define DRAW_VIEW_RAYS
+// #define DRAW_COLLISIONS
+
 const int screen_width = 640;
 const int screen_height = 640;
 
 const int board_w = 8;
-const int board_h = 8;
+const int board_h = 9;
 
 const int cell_size = screen_width / board_w;
 
 int board[board_w][board_h] = {
-    { 1, 1, 1, 1, 1, 1, 1, 1 },
-    { 1, 0, 0, 0, 0, 0, 0, 1 },
-    { 1, 0, 2, 0, 0, 0, 1, 1 },
-    { 1, 2, 2, 0, 0, 0, 0, 1 },
-    { 1, 0, 0, 0, 0, 0, 0, 1 },
-    { 1, 0, 0, 0, 0, 0, 0, 1 },
-    { 1, 0, 1, 0, 0, 0, 0, 1 },
-    { 1, 1, 1, 1, 1, 1, 1, 1 },
+    { 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+    { 1, 0, 0, 0, 0, 0, 0, 0, 1 },
+    { 1, 0, 2, 0, 0, 0, 1, 0, 1 },
+    { 1, 2, 2, 0, 0, 0, 0, 0, 1 },
+    { 1, 0, 0, 0, 0, 0, 0, 0, 1 },
+    { 1, 0, 0, 0, 0, 0, 0, 0, 1 },
+    { 1, 0, 1, 0, 0, 0, 0, 0, 1 },
+    { 1, 1, 1, 1, 1, 1, 1, 1, 1 },
 };
-Color wall_colors[] = {
-    BLANK,
-    RED,
-    BLUE,
+
+Image images[] = {
+    LoadImage("./Assets/textures/TECH_1A.png"), // NULL
+    LoadImage("./Assets/textures/TECH_1A16.png"),
+    LoadImage("./Assets/textures/SUPPORT_3.png"),
 };
+
+Image floor_img = LoadImage("./Assets/textures/FLOOR_1A.png");
+Image ceiling_img = LoadImage("./Assets/textures/LIGHT_1C.png");
 
 struct Player {
     Vector2 pos;
@@ -41,18 +48,92 @@ struct Object {
     Image image;
 };
 
-bool
-check_collision(Vector2 position, float radius)
+struct CellPos {
+    int x, y;
+    CellPos() : x(0), y(0) {};
+    CellPos(int x, int y) : x(x), y(y) {};
+    CellPos(Vector2 v) : x(int(v.x)), y(int(v.y)) {};
+};
+
+struct RayHit {
+    Vector2 pos;
+    CellPos cell_pos;
+    bool is_horizontal;
+    float angle;
+};
+
+struct Collision {
+    Vector2 pos;
+    CellPos cell;
+};
+
+inline Vector2
+get_cell(const Vector2 &pos)
 {
-    for (float angle = -PI; angle < PI; angle += PI / 4)
+    return Vector2 {
+        std::floor(pos.x / cell_size),
+        std::floor(pos.y / cell_size),
+    };
+}
+
+inline bool
+correct_cell(int x, int y)
+{
+    return (x >= 0 && x < board_w) && (y >= 0 && y < board_h);
+}
+
+inline bool
+correct_cell(CellPos pos)
+{
+    return correct_cell(pos.x, pos.y);
+}
+
+inline float
+fix_angle(float angle)
+{
+    while (angle > PI)  angle -= 2 * PI;
+    while (angle < -PI) angle += 2 * PI;
+    return angle;
+}
+
+std::vector<Collision>
+find_collisions(const Vector2 &pos, float radius)
+{
+    float radius_sqr = radius * radius;
+    std::vector<Collision> collisions;
+    CellPos cell = CellPos(get_cell(pos));
+
+    for (int i = -1; i <= 1; i++)
     {
-        Vector2 check = position + Vector2Rotate({ radius, 0 }, angle);
-        int cell_x = check.x / cell_size;
-        int cell_y = check.y / cell_size;
-        if (board[cell_x][cell_y] != 0)
-            return true;
+        for (int j = -1; j <= 1; j++)
+        {
+            if (i == 0 && j == 0) continue;
+            CellPos neighbour(cell.x + i, cell.y + j);
+            if (!correct_cell(neighbour)) continue;
+            if (board[neighbour.x][neighbour.y] == 0) continue;
+
+            Vector2 collision = pos;
+            if (neighbour.x < cell.x)
+                collision.x = cell.x * 1.0f * cell_size;
+            else if (neighbour.x > cell.x)
+                collision.x = cell.x * 1.0f * cell_size + cell_size;
+
+            if (neighbour.y < cell.y)
+                collision.y = cell.y * 1.0f * cell_size;
+            else if (neighbour.y > cell.y)
+                collision.y = cell.y * 1.0f * cell_size + cell_size;
+
+            if (Vector2LengthSqr(collision - pos) <= radius_sqr)
+            {
+                collisions.push_back(Collision {
+                    collision,
+                    neighbour,
+                });
+            }
+        }
     }
-    return false;
+
+    return collisions;
 }
 
 void
@@ -79,52 +160,12 @@ draw_top_down_view(const Player &player)
         DrawLine(0, y, screen_width, y, GRAY);
     }
 
-    DrawCircleV(player.pos, 14, RED);
-    DrawLineEx(player.pos, player.pos + Vector2Rotate({ 1,0 }, player.rotation) * 25, 5, BLUE);
+    Vector2 player_cell = get_cell(player.pos);
+    DrawRectangleV(player_cell * cell_size, {cell_size, cell_size}, PURPLE);
+    DrawCircleV(player.pos, 10, RED);
+    DrawLineEx(player.pos, player.pos + Vector2Rotate({ 1,0 }, player.rotation) * 25, 3, RED);
 }
 
-Image images[] = {
-    LoadImage("./Assets/textures/TECH_1A.png"), // NULL
-    LoadImage("./Assets/textures/TECH_1A16.png"),
-    LoadImage("./Assets/textures/SUPPORT_3.png"),
-};
-
-Image floor_img = LoadImage("./Assets/textures/FLOOR_1A.png");
-Image ceiling_img = LoadImage("./Assets/textures/LIGHT_1C.png");
-
-struct CellPos {
-    int x, y;
-    CellPos() : x(0), y(0) {};
-    CellPos(int x, int y) : x(x), y(y) {};
-    CellPos(Vector2 v) : x(int(v.x)), y(int(v.y)) {};
-};
-
-struct RayHit {
-    Vector2 pos;
-    CellPos cell_pos;
-    bool is_horizontal;
-    float angle;
-};
-
-inline bool
-correct_cell(int x, int y)
-{
-    return (x >= 0 && x < board_w) && (y >= 0 && y < board_h);
-}
-
-inline bool
-correct_cell(CellPos pos)
-{
-    return correct_cell(pos.x, pos.y);
-}
-
-inline float
-fix_angle(float angle)
-{
-    while (angle > PI)  angle -= 2 * PI;
-    while (angle < -PI) angle += 2 * PI;
-    return angle;
-}
 
 RayHit
 cast_ray(Vector2 pos, Vector2 dir)
@@ -228,7 +269,9 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
             sin(player.rotation + angle),
         };
         RayHit hit = cast_ray(player.pos, d);
+#ifdef DRAW_VIEW_RAYS
         DrawLineEx(player.pos, hit.pos, 2, BLUE);
+#endif
         hits.push_back(hit);
     }
 
@@ -370,6 +413,34 @@ draw_raycast_view(const Player &player, const std::vector<Object> &objects,
     }
 }
 
+void
+fix_collisions(Player &player, const Vector2 &move_dir, float dt)
+{
+    const int collision_radius = 25;
+    Vector2 move = move_dir * (player.speed * dt);
+    std::vector<Collision> collisions = find_collisions(player.pos + move, collision_radius);
+    player.pos += move;
+    if (!collisions.empty())
+    {
+        for (auto &collision : collisions)
+        {
+            if (Vector2Length(collision.pos - player.pos) >= collision_radius)
+                continue;
+            Vector2 fix = Vector2Normalize(player.pos - collision.pos) * collision_radius + collision.pos;
+            player.pos += fix - player.pos;
+#ifdef DRAW_COLLISIONS
+            DrawRectangle(
+                collision.cell.x * cell_size,
+                collision.cell.y * cell_size,
+                cell_size, cell_size, GREEN
+            );
+            DrawCircleV(collision.pos, 4, MAGENTA);
+            DrawCircleV(fix, 4, MAGENTA);
+#endif
+        }
+    }
+}
+
 int main()
 {
     InitWindow(screen_width * 2, screen_height, "Raycaster");
@@ -406,31 +477,28 @@ int main()
 
         objects[1].pos.x = 3 * cell_size + 100 * sin(t);
 
-        Vector2 move = { 0, 0 };
+        Vector2 move_dir = { 0, 0 };
         DisableCursor();
         float delta = GetMouseDelta().x;
         player.rotation += delta * dt * 0.1;
         Vector2 dir = Vector2Rotate({ 1, 0 }, player.rotation);
-        Vector2 forward = dir * (player.speed * dt);
+        Vector2 forward = dir;
         Vector2 right = Vector2Rotate(forward, PI / 2);
         if (IsKeyDown(KEY_W))
-            move = forward;
+            move_dir = forward;
         if (IsKeyDown(KEY_S))
-            move = -forward;
+            move_dir = -forward;
         if (IsKeyDown(KEY_A))
-            move = -right;
+            move_dir = -right;
         if (IsKeyDown(KEY_D))
-            move = right;
-
-        player.pos += move;
-        if (check_collision(player.pos, 15))
-            player.pos -= move;
+            move_dir = right;
 
         BeginDrawing();
         {
             ClearBackground(BLACK);
             draw_top_down_view(player);
             draw_raycast_view(player, objects, config);
+            fix_collisions(player, move_dir, dt);
         }
         EndDrawing();
     }
