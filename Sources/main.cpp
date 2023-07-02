@@ -7,7 +7,7 @@
 #include <chrono>
 
 #define DRAW_VIEW_RAYS
-#define DRAW_COLLISIONS
+// #define DRAW_COLLISIONS
 
 const int screen_width = 1024;
 const int screen_height = 768;
@@ -31,7 +31,7 @@ int board[board_w][board_h] = {
 
 Image images[] = {
     LoadImage("./Assets/textures/TECH_1A.png"), // NULL
-    LoadImage("./Assets/textures/TECH_1A16.png"),
+    LoadImage("./Assets/textures/TECH_1A.png"),
     LoadImage("./Assets/textures/SUPPORT_3.png"),
 };
 
