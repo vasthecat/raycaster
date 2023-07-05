@@ -65,7 +65,6 @@ struct CellPos {
     int x, y;
     CellPos() : x(0), y(0) {};
     CellPos(int x, int y) : x(x), y(y) {};
-    CellPos(const CellPos &p) : x(p.x), y(p.y) {};
     CellPos(Vector2 v) : x(int(v.x)), y(int(v.y)) {};
     bool operator==(const CellPos &p) const
     {
@@ -190,8 +189,7 @@ find_collisions(const Vector2 &pos, float radius)
 void
 draw_top_down_view(const Player &player,
                    const std::vector<RayHit> &hits,
-                   const std::vector<Object> &objects,
-                   const RaycastConfig &config)
+                   const std::vector<Object> &objects)
 {
     for (int row = 0; row < board_h; ++row) {
         for (int col = 0; col < board_w; ++col) {
@@ -315,7 +313,7 @@ get_render_order(const Player &player, const std::vector<Object> &objects)
     std::vector<size_t> order;
     for (auto &p : distances)
         order.push_back(p.second);
-    return std::move(order);
+    return order;
 }
 
 Color
@@ -625,7 +623,8 @@ find_path(Vector2 from, Vector2 to)
 void
 shoot(const Player &player, std::vector<Object> &objects)
 {
-    size_t to_destroy = -1;
+    size_t to_destroy;
+    bool found = false;
     for (auto &object : objects)
     {
         Vector2 player_to_object = object.pos - player.pos;
@@ -633,8 +632,6 @@ shoot(const Player &player, std::vector<Object> &objects)
 
         Vector2 a = object.pos - anti_normal * cell_size / 2;
         Vector2 b = object.pos + anti_normal * cell_size / 2;
-
-        Vector2 dir = Vector2Rotate({ 1, 0 }, player.rotation);
 
         float start_angle = fix_angle(Vector2Angle({1, 0}, a - player.pos));
         float end_angle = fix_angle(Vector2Angle({1, 0}, b - player.pos));
@@ -644,10 +641,11 @@ shoot(const Player &player, std::vector<Object> &objects)
         if (start_angle < angle && angle < end_angle)
         {
             to_destroy = object.id;
+            found = true;
             break;
         }
     }
-    if (to_destroy != -1)
+    if (found)
     {
         objects.erase(
             std::remove_if(
@@ -762,7 +760,7 @@ int main()
         }
 
         BeginTextureMode(config.minimap);
-        draw_top_down_view(player, hits, objects, config);
+        draw_top_down_view(player, hits, objects);
         EndTextureMode();
 
         if (objects.size() > 1)
