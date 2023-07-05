@@ -11,7 +11,7 @@
 
 #define DRAW_VIEW_RAYS
 #define DRAW_COLLISIONS
-#define USE_SHADING
+// #define USE_SHADING
 // #define DRAW_RAYS_TO_OBJECTS
 
 const int screen_width = 1024;
@@ -337,6 +337,7 @@ draw_raycast_view(const Player &player,
     float rect_x = 0;
     for (auto &hit : hits)
     {
+        float floor_pix_h = 3;
         Vector2 hit_delta = hit.pos - player.pos;
         float dist =
             hit_delta.x * cos(player.rotation) +
@@ -347,7 +348,7 @@ draw_raycast_view(const Player &player,
         float angle = fix_angle(hit.angle - player.rotation + config.fov / 2.0);
         int x = int(angle / config.fov * screen_width);
         float floor_dist = dist / Vector2Length(hit_delta);
-        for(int y = 0; y < horizon; y++)
+        for(int y = 0; y < horizon; y += floor_pix_h)
         {
             float row_dist = cam_height / (horizon - y) / floor_dist;
             Vector2 floor_pos = player.pos / cell_size + ray0 * row_dist;
@@ -370,12 +371,12 @@ draw_raycast_view(const Player &player,
 
             DrawRectangle(
                 x, screen_height - y,
-                config.rect_w + 1, 1,
+                config.rect_w + 1, floor_pix_h,
                 floor_pix
             );
             DrawRectangle(
                 x, y,
-                config.rect_w + 1, 1,
+                config.rect_w + 1, floor_pix_h,
                 ceiling_pix
             );
         }
@@ -396,9 +397,7 @@ draw_raycast_view(const Player &player,
         if (hit.is_horizontal)
             col = column.x;
 
-        float pix_h = rect_h / cell_image.height;
-
-        // TODO: fix if img.height is greater than rect_h
+        float wall_pix_h = rect_h / cell_image.height;
         for (int i = 0; i < cell_image.height; ++i)
         {
             Color* color_data = (Color*)cell_image.data;
@@ -412,8 +411,8 @@ draw_raycast_view(const Player &player,
 #endif
 
             DrawRectangle(
-                rect_x - 1, rect_y + pix_h * i,
-                config.rect_w + 2, pix_h + 2,
+                rect_x - 1, rect_y + wall_pix_h * i,
+                config.rect_w + 2, std::ceil(wall_pix_h),
                 pixel
             );
         }
@@ -483,7 +482,7 @@ draw_raycast_view(const Player &player,
 
                     DrawRectangle(
                         rect_x, rect_y + pix_h * i,
-                        rect_w + 1, pix_h + 1,
+                        rect_w + 1, std::ceil(pix_h),
                         pixel
                     );
                 }
