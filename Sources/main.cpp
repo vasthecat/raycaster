@@ -695,7 +695,7 @@ int main()
 
     Player player;
     player.pos = { 5.0f * cell_size, 5.0f * cell_size };
-    player.speed = 100;
+    player.speed = 150;
     player.rotation = 0;
 
     std::vector<Object> objects;
@@ -734,13 +734,14 @@ int main()
         Vector2 forward = dir;
         Vector2 right = Vector2Rotate(forward, PI / 2);
         if (IsKeyDown(KEY_W))
-            move_dir = forward;
+            move_dir += forward;
         if (IsKeyDown(KEY_S))
-            move_dir = -forward;
+            move_dir += -forward;
         if (IsKeyDown(KEY_A))
-            move_dir = -right;
+            move_dir += -right;
         if (IsKeyDown(KEY_D))
-            move_dir = right;
+            move_dir += right;
+        move_dir = Vector2Normalize(move_dir);
         
         if (IsKeyPressed(KEY_T))
             config.draw_map = !config.draw_map;
