@@ -11,6 +11,7 @@
 
 #define DRAW_VIEW_RAYS
 #define DRAW_COLLISIONS
+#define USE_SHADING
 // #define DRAW_RAYS_TO_OBJECTS
 
 const int screen_width = 1024;
@@ -317,14 +318,23 @@ get_render_order(const Player &player, const std::vector<Object> &objects)
     return std::move(order);
 }
 
+Color
+blend_colors(Color c1, Color c2, float val)
+{
+    Color blend = (c1 * (1.0f - val) + c2 * val);
+    blend.a = c1.a;
+    return blend;
+}
+
 void
 draw_raycast_view(const Player &player,
                   const std::vector<RayHit> &hits,
                   const std::vector<Object> &objects,
                   const RaycastConfig &config)
 {
-    int horizon = screen_height / 2;
-    float cam_height = 0.5 * screen_height;
+    int horizon = screen_height / 2.0f;
+    float cam_height = 0.5f * screen_height;
+    float light_dist = 200.0f;
 
     float rect_x = 0;
     for (auto &hit : hits)
@@ -349,15 +359,26 @@ draw_raycast_view(const Player &player,
             };
             Vector2 uv = floor_pos - cell;
 
+            Color floor_pix = sample_uv(floor_img, uv);
+            Color ceiling_pix = sample_uv(ceiling_img, uv);
+
+#ifdef USE_SHADING
+            float blend = row_dist * cell_size / light_dist;
+            blend *= blend;
+            if (blend > 1.0f) blend = 1.0f;
+            floor_pix = blend_colors(floor_pix, BLACK, blend);
+            ceiling_pix = blend_colors(ceiling_pix, BLACK, blend);
+#endif
+
             DrawRectangle(
                 x, screen_height - y,
                 config.rect_w + 1, 1,
-                sample_uv(floor_img, uv)
+                floor_pix
             );
             DrawRectangle(
                 x, y,
                 config.rect_w + 1, 1,
-                sample_uv(ceiling_img, uv)
+                ceiling_pix
             );
         }
 
@@ -385,9 +406,17 @@ draw_raycast_view(const Player &player,
             Color* color_data = (Color*)cell_image.data;
             Color pixel = color_data[i * cell_image.width + col];
 
+#ifdef USE_SHADING
+            float blend = dist / light_dist;
+            blend *= blend;
+            if (blend > 1.0f) blend = 1.0f;
+            pixel = blend_colors(pixel, BLACK, blend);
+#endif
+
             DrawRectangle(
                 rect_x - 1, rect_y + pix_h * i,
-                config.rect_w + 2, pix_h + 2, pixel
+                config.rect_w + 2, pix_h + 2,
+                pixel
             );
         }
 
@@ -447,9 +476,17 @@ draw_raycast_view(const Player &player,
                     Color* color_data = (Color*)object.image.data;
                     Color pixel = color_data[i * object.image.width + col];
 
+#ifdef USE_SHADING
+                    float blend = dist / light_dist;
+                    blend *= blend;
+                    if (blend > 1.0f) blend = 1.0f;
+                    pixel = blend_colors(pixel, BLACK, blend);
+#endif
+
                     DrawRectangle(
                         rect_x, rect_y + pix_h * i,
-                        rect_w + 1, pix_h + 1, pixel
+                        rect_w + 1, pix_h + 1,
+                        pixel
                     );
                 }
             }
